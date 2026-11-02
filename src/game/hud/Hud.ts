@@ -2,7 +2,32 @@ import * as THREE from 'three';
 import { HUD as CFG } from '../config';
 import type { FlightTelemetry } from '../flight/FlightModel';
 import type { ControlState } from '../input/ControlAxes';
-import type { CameraMode } from '../camera/ChaseCamera';
+import { CAMERA_MODE_LABEL, type CameraMode } from '../camera/ChaseCamera';
+import { formatRaceTime } from '../race/RaceRecords';
+
+/** Mouse-aim state for the HUD; null in keyboard-only mode. */
+export interface HudMouse {
+  /** World aim direction (unit). */
+  aim: THREE.Vector3;
+  errorDeg: number;
+  saturated: boolean;
+  gLimited: boolean;
+  locked: boolean;
+  aimLimit: 'limited' | 'free';
+  freeLook: boolean;
+}
+
+/** Ring-course timer state. */
+export interface HudRace {
+  running: boolean;
+  /** Seconds since ring 1 (frozen after a finish / fail). */
+  time: number;
+  /** Rings flown this run. */
+  passed: number;
+  total: number;
+  best: number | null;
+  banner: { title: string; detail: string; good: boolean } | null;
+}
 
 export interface HudFrame {
   camera: THREE.PerspectiveCamera;
@@ -15,11 +40,12 @@ export interface HudFrame {
   enginePower: number;
   fps: number;
   cameraMode: CameraMode;
+  mouse: HudMouse | null;
   aircraftName: string;
   /** Height above whatever is directly below. */
   radarAltitude: number;
   warnings: { pullUp: boolean; outOfBounds: number | null; crashed: string | null; lowSpeed: boolean };
-  rings: { passed: number; total: number };
+  race: HudRace;
 }
 
 const DEG = Math.PI / 180;
@@ -32,7 +58,8 @@ const FONT = '"Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif
  * is a point far along the nose, the FPM a point far along the velocity
  * vector. They coincide only when the aircraft flies exactly where it points.
  * The pitch ladder is built the same way, so it rolls and scrolls with the
- * real horizon in either camera mode.
+ * real horizon in any camera mode. In mouse mode a third symbol, the aim
+ * reticle, marks where the player has asked the nose to go.
  */
 export class Hud {
   readonly canvas: HTMLCanvasElement;
@@ -95,12 +122,14 @@ export class Hud {
     this.drawLadder(f, scale);
     this.drawBoresight(f, scale);
     this.drawFpm(f, scale);
+    this.drawAim(f, scale);
     this.drawHeading(f, scale);
     this.drawSpeed(f, scale);
     this.drawAltitude(f, scale);
     this.drawBank(f, scale);
     this.drawEngine(f, scale);
     this.drawStatus(f, scale);
+    this.drawRace(f.race, scale);
     this.drawWarnings(f, scale);
   }
 
@@ -139,6 +168,91 @@ export class Hud {
     ctx.moveTo(p.x, p.y - r);
     ctx.lineTo(p.x, p.y - r * 2);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Aim reticle: a ring with four outside ticks (the FPM has wings, the
+   * boresight is a W). A faint line joins it to the boresight while the nose
+   * is still catching up. Off screen, it is pinned to the edge as an arrow.
+   * It turns amber when the controller is at full stick and still behind,
+   * with G-LIM when the G-limit is what holds it back.
+   */
+  private drawAim(f: HudFrame, s: number) {
+    const m = f.mouse;
+    if (!m || f.warnings.crashed) return;
+    const ctx = this.ctx;
+    const cam = f.camera;
+    const color = m.saturated ? CFG.warnColor : CFG.color;
+    const r = 13 * s;
+    const target = this._b.copy(f.position).addScaledVector(m.aim, 3000);
+    const p = this.project(target, cam);
+    const margin = 28 * s;
+    const onScreen = p && p.x > margin && p.x < this.w - margin && p.y > margin && p.y < this.h - margin;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1.8;
+    if (!onScreen) {
+      // Direction to the aim in screen space, from the camera-space vector
+      // (works even when the aim is behind the camera).
+      const v = this._v.copy(target).applyMatrix4(cam.matrixWorldInverse);
+      let dx = v.x;
+      let dy = -v.y;
+      const len = Math.hypot(dx, dy) || 1;
+      dx /= len;
+      dy /= len;
+      const cx = this.w / 2;
+      const cy = this.h / 2;
+      const k = Math.min((cx - margin) / Math.max(Math.abs(dx), 1e-6), (cy - margin) / Math.max(Math.abs(dy), 1e-6));
+      const x = cx + dx * k;
+      const y = cy + dy * k;
+      const a = Math.atan2(dy, dx);
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.8, 0, Math.PI * 2);
+      ctx.moveTo(x + Math.cos(a) * r * 1.9, y + Math.sin(a) * r * 1.9);
+      ctx.lineTo(x + Math.cos(a + 2.5) * r * 1.2, y + Math.sin(a + 2.5) * r * 1.2);
+      ctx.moveTo(x + Math.cos(a) * r * 1.9, y + Math.sin(a) * r * 1.9);
+      ctx.lineTo(x + Math.cos(a - 2.5) * r * 1.2, y + Math.sin(a - 2.5) * r * 1.2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    // Lead line from the boresight while the nose is catching up.
+    if (m.errorDeg > 6) {
+      const b = this.project(this._a.copy(f.position).addScaledVector(f.forward, 3000), cam);
+      if (b) {
+        const d = Math.hypot(p.x - b.x, p.y - b.y);
+        if (d > r * 2.5) {
+          const ux = (p.x - b.x) / d;
+          const uy = (p.y - b.y) / d;
+          ctx.save();
+          ctx.globalAlpha = 0.35;
+          ctx.setLineDash([4 * s, 6 * s]);
+          ctx.beginPath();
+          ctx.moveTo(b.x + ux * r * 1.6, b.y + uy * r * 1.6);
+          ctx.lineTo(p.x - ux * r * 1.4, p.y - uy * r * 1.4);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    for (const [ux, uy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      ctx.moveTo(p.x + ux * r * 1.3, p.y + uy * r * 1.3);
+      ctx.lineTo(p.x + ux * r * 1.9, p.y + uy * r * 1.9);
+    }
+    ctx.stroke();
+    if (m.gLimited) {
+      ctx.font = `700 ${12 * s + 3}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('G-LIM', p.x, p.y + r * 2.3);
+    }
     ctx.restore();
   }
 
@@ -429,8 +543,48 @@ export class Hud {
     ctx.fillText(`FPS ${Math.round(f.fps)}`, 12, 10);
     ctx.fillStyle = CFG.color;
     ctx.fillText(f.aircraftName.toUpperCase(), 12, 10 + 18 * s);
-    ctx.fillText(`CAM ${f.cameraMode === 'aircraft' ? 'AIRCRAFT LOCK' : 'HORIZON LOCK'}`, 12, 10 + 36 * s);
-    ctx.fillText(`RINGS ${f.rings.passed}/${f.rings.total}`, 12, 10 + 54 * s);
+    ctx.fillText(`CAM ${CAMERA_MODE_LABEL[f.cameraMode].toUpperCase()}${f.mouse?.freeLook ? ' · FREE LOOK' : ''}`, 12, 10 + 36 * s);
+    ctx.fillText(`INPUT ${f.mouse ? `MOUSE · AIM ${f.mouse.aimLimit === 'free' ? 'FREE' : 'LIMITED'}` : 'KEYBOARD'}`, 12, 10 + 54 * s);
+    ctx.fillText(`RINGS ${f.race.passed}/${f.race.total}`, 12, 10 + 72 * s);
+    ctx.restore();
+
+    if (f.mouse && !f.mouse.locked && !f.warnings.crashed) {
+      ctx.save();
+      ctx.font = `700 ${15 * s + 4}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = CFG.warnColor;
+      // Bottom centre: clear of the jet, which sits in the lower half.
+      ctx.fillText('CLICK TO CAPTURE MOUSE', this.w / 2, this.h - 28 * s - 10);
+      ctx.restore();
+    }
+  }
+
+  /** Top centre, under the heading tape: run clock, or the FINISH / FAIL banner. */
+  private drawRace(r: HudRace, s: number) {
+    const ctx = this.ctx;
+    const cx = this.w / 2;
+    const y = 128 * s + 10;
+    const best = r.best === null ? '' : `BEST ${formatRaceTime(r.best)}`;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (r.banner) {
+      ctx.fillStyle = r.banner.good ? CFG.color : CFG.dangerColor;
+      ctx.font = `800 ${24 * s + 6}px ${FONT}`;
+      ctx.fillText(r.banner.title, cx, y);
+      ctx.font = `600 ${15 * s + 4}px ${FONT}`;
+      ctx.fillText(r.banner.detail, cx, y + 28 * s);
+    } else if (r.running) {
+      ctx.font = `700 ${24 * s + 6}px ${FONT}`;
+      ctx.fillText(formatRaceTime(r.time), cx, y);
+      ctx.font = `${12 * s + 3}px ${FONT}`;
+      ctx.fillText(`RING ${r.passed + 1}/${r.total}${best ? `  ·  ${best}` : ''}`, cx, y + 24 * s);
+    } else {
+      ctx.globalAlpha = 0.55;
+      ctx.font = `${12 * s + 3}px ${FONT}`;
+      ctx.fillText(`RING 1 STARTS THE CLOCK${best ? `  ·  ${best}` : ''}`, cx, y);
+    }
     ctx.restore();
   }
 

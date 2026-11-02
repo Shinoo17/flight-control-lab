@@ -6,6 +6,14 @@ import { createSky, SKY } from './Sky';
 import { buildZones, ZONE_TINTS, ZONES, type Zones } from './zones';
 import type { Collider } from './Colliders';
 import { rng } from './noise';
+import type { RingState } from '../race/RingRace';
+
+const RING_COLORS: Record<RingState, string> = {
+  idle: '#f08a24',
+  next: '#f2e430',
+  passed: '#4dff88',
+  missed: '#ff3b30',
+};
 
 export type HitResult = { kind: 'ground' } | { kind: 'object'; collider: Collider };
 
@@ -16,9 +24,6 @@ export class World {
   private readonly sky: THREE.Mesh;
   private readonly sun: THREE.DirectionalLight;
   private readonly ringColor = new THREE.Color();
-  private readonly _p = new THREE.Vector3();
-  private readonly _d = new THREE.Vector3();
-  ringsPassed = 0;
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     this.scene = scene;
@@ -70,37 +75,11 @@ export class World {
     return Math.abs(p.x) > WORLD.boundsHalf || Math.abs(p.z) > WORLD.boundsHalf || p.y > WORLD.ceiling;
   }
 
-  /** Mark rings the aircraft flew through between two positions. Returns the ring index passed, or -1. */
-  checkRings(prev: THREE.Vector3, next: THREE.Vector3): number {
-    const rings = this.zones.rings;
-    for (let i = 0; i < rings.list.length; i++) {
-      const r = rings.list[i];
-      const a = this._p.copy(prev).sub(r.center).dot(r.normal);
-      const b = this._d.copy(next).sub(r.center).dot(r.normal);
-      if (a < 0 && b >= 0) {
-        // Crossing point on the ring plane.
-        const t = a / (a - b);
-        const x = this._p.copy(prev).lerp(next, t);
-        if (x.distanceTo(r.center) < r.radius && !r.passed) {
-          r.passed = true;
-          this.ringsPassed++;
-          rings.mesh.setColorAt(i, this.ringColor.set('#4dff88'));
-          rings.mesh.instanceColor!.needsUpdate = true;
-          return i;
-        }
-      }
-    }
-    return -1;
-  }
-
-  resetRings() {
-    const rings = this.zones.rings;
-    rings.list.forEach((r, i) => {
-      r.passed = false;
-      rings.mesh.setColorAt(i, this.ringColor.set('#f08a24'));
-    });
-    if (rings.mesh.instanceColor) rings.mesh.instanceColor.needsUpdate = true;
-    this.ringsPassed = 0;
+  /** Colour each ring by its race state. */
+  paintRings(states: readonly RingState[]) {
+    const mesh = this.zones.rings.mesh;
+    states.forEach((st, i) => mesh.setColorAt(i, this.ringColor.set(RING_COLORS[st])));
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
   /** Keep sky centred on the camera and the shadow frustum on the aircraft. */

@@ -13,18 +13,27 @@ npm run build      # typecheck + production build
 
 ## การควบคุม
 
+มีสองโหมด สลับด้วย `M` หรือปุ่มบน toolbar: **Mouse + Keyboard** (ค่าเริ่มต้น) และ **Keyboard Only** (ทำงานเหมือนเดิมทุกอย่าง)
+
 | ปุ่ม | การทำงาน |
 |---|---|
-| ↑ / ↓ | Pitch up / down |
-| A / D หรือ ← / → | Roll left / right |
+| Mouse | เล็งทิศทาง (Mouse Aim) เครื่องบินหันจมูกตามจุดเล็งเอง |
+| ↑ / ↓ | Pitch up / down (ในโหมดเมาส์ = override แกน pitch) |
+| A / D หรือ ← / → | Roll left / right (ในโหมดเมาส์ = override แกน roll, จุดเล็งคงที่) |
 | Q / E | Yaw left / right |
 | W / S | เร่ง / ลดความเร็ว (ปล่อยแล้วคงความเร็วปัจจุบันไว้) |
 | Shift (ค้าง) | Afterburner |
 | X (ค้าง) | Airbrake |
-| C | สลับกล้อง Aircraft Lock / Horizon Lock (สลับจากปุ่มบน UI ได้ด้วย) |
+| C (ค้าง) | Free Look (โหมดเมาส์) |
+| V | วนโหมดกล้อง Aircraft Lock → Horizon Lock → Aim Lock (เลือกจากปุ่มบน UI ได้ด้วย) |
+| M | สลับ Mouse + Keyboard / Keyboard Only |
+| G | สลับ Aim Limited (จุดเล็งห่างจมูกได้ไม่เกิน 65°) / Aim Free (ลากไปได้ทุกทิศ เครื่องหันตามเท่าที่ physics ทำได้) |
 | R | Reset เครื่องบิน |
-| P / Esc | Pause |
+| P | Pause / Resume |
+| Esc | Pause (และปลดเมาส์) |
 | H | แสดง / ซ่อนแผงช่วยเหลือ |
+
+โหมดเมาส์ใช้ Pointer Lock: คลิกที่ฉากเพื่อจับเมาส์, Esc เพื่อปล่อย (เกมจะ pause), คลิกหรือกด P เพื่อบินต่อ รายละเอียดการออกแบบอยู่ใน [docs/MOUSE_CONTROL_SPEC.md](docs/MOUSE_CONTROL_SPEC.md)
 
 ปุ่มอ่านจาก `KeyboardEvent.code` จึงใช้ได้กับ keyboard ภาษาไทย
 
@@ -41,15 +50,20 @@ src/
     Game.ts                 renderer + game loop + state (menu / flying / crashed / paused)
     input/KeyboardInput.ts  สถานะปุ่มดิบ (KeyboardEvent.code)
     input/ControlAxes.ts    Progressive input: ค่าแกนค่อย ๆ เพิ่มตามเวลาที่กดค้าง, ค่อย ๆ ลดเมื่อปล่อย, response curve
+    input/MouseInput.ts     Pointer lock + mouse delta
+    input/MouseAim.ts       ทิศจุดเล็ง (world direction) หมุนตามแกนกล้อง, cone limit
+    input/ControlMixer.ts   รวม keyboard กับ aim controller รายแกน (manual override + handback)
     flight/FlightModel.ts   Arcade physics (ไม่พึ่ง render, test ได้แบบ headless)
+    flight/AimController.ts Autopilot: หันจมูกเข้าหาจุดเล็ง (direct / bank-and-yank / roll-out)
     aircraft/               โหลด GLB, normalize แกน/สเกล, rig พื้นบังคับ/nozzle/เปลวไฟของแต่ละลำ
-    camera/ChaseCamera.ts   กล้อง Aircraft Lock / Horizon Lock
+    camera/ChaseCamera.ts   กล้อง Aircraft Lock / Horizon Lock / Aim Lock + Free Look
     hud/Hud.ts              HUD บน canvas 2D
     world/                  พื้น grid, ท้องฟ้า, terrain, โซนทดสอบ, collider
     effects/                speed lines, explosion
   vendor/                   su57-nozzle.js / su57-flame.js (คัดลอกจาก workspace ใช้ตามเดิม)
   ui/                       React overlay
 tests/flight.test.ts        ตรวจทิศ pitch/roll/yaw, progressive input, พลังงานจากการไต่/ดิ่ง/เลี้ยว
+tests/mouse.test.ts         ตรวจ aim controller, manual override, keyboard-only passthrough, mouse aim mapping
 ```
 
 ## Flight model โดยย่อ

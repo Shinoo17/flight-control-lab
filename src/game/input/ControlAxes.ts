@@ -40,6 +40,11 @@ export class ProgressiveAxis {
     }
   }
 
+  /** True while the key is held or the axis has not yet decayed back to 0. */
+  get active(): boolean {
+    return this.raw !== 0;
+  }
+
   /** Axis value after the response curve, -1..1. */
   get value(): number {
     const v = this.raw;

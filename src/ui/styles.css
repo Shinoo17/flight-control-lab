@@ -68,6 +68,8 @@ kbd {
   top: 12px;
   right: 12px;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   font-family: 'Barlow Condensed', sans-serif;
   letter-spacing: 0.04em;
@@ -160,6 +162,8 @@ dd {
 
 .center-banner {
   position: absolute;
+  /* Clicks fall through to the view, which re-captures the mouse and resumes. */
+  pointer-events: none;
   left: 50%;
   top: 38%;
   transform: translate(-50%, -50%);
@@ -300,5 +304,93 @@ dd {
   .cards,
   .menu-keys {
     grid-template-columns: 1fr;
+  }
+}
+
+/* --- ring-course records --------------------------------------------------- */
+
+.records {
+  position: absolute;
+  width: 280px;
+  padding: 10px 14px 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  font-size: 13px;
+  backdrop-filter: blur(4px);
+  overflow-y: auto;
+}
+
+.records.in-menu {
+  right: 48px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-height: calc(100% - 96px);
+}
+
+/* Left side, under the HUD status lines. */
+.records.in-flight {
+  left: 12px;
+  top: 120px;
+  max-height: calc(100% - 140px);
+}
+
+.records h3 {
+  margin: 0 0 8px;
+  font: 700 13px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hud);
+}
+
+.records ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.records li {
+  display: grid;
+  grid-template-columns: 22px 64px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.records .rank {
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--muted);
+  text-align: right;
+}
+
+.records .time {
+  font: 700 15px 'Barlow Condensed', sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.records li:first-child .time {
+  color: var(--hud);
+}
+
+.records .ac,
+.records .date {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.records-empty {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 1000px) {
+  /* The menu card fills the left; there is no room beside it. */
+  .records.in-menu {
+    display: none;
   }
 }

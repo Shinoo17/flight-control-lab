@@ -168,6 +168,65 @@ export const FLIGHT = {
   },
 };
 
+/**
+ * Mouse aim: the mouse steers a world-space aim direction and the aim
+ * controller turns the nose toward it. See docs/MOUSE_CONTROL_SPEC.md.
+ */
+export const MOUSE = {
+  /** Aim rotation per pixel of mouse travel at `CAMERA.fovBase` (scales with FOV). */
+  sensitivityDegPerPx: 0.07,
+  invertY: false,
+  /** Per-event deltas larger than this (px) are dropped as pointer-lock glitches. */
+  maxEventDelta: 400,
+  /**
+   * Aim range at start, switchable in game (G key / toolbar):
+   *   limited — the aim may lead the nose by at most `coneDeg`
+   *   free    — the aim goes anywhere, even behind the jet; the aircraft
+   *             still only turns as fast as its rates and G-limit allow
+   */
+  aimLimit: 'limited' as 'limited' | 'free',
+  /** Furthest the aim may lead the nose in limited mode (deg). */
+  coneDeg: 65,
+
+  /**
+   * Turn strategy blends on aim error: below `directDeg` the nose is moved
+   * with pitch + yaw only (no roll), above `bankDeg` it is bank-and-yank.
+   */
+  directDeg: 6,
+  bankDeg: 25,
+  /**
+   * Rate controller per axis: commanded rate = gain × error − damping × rate,
+   * in rad/s per rad of error, then divided by the available rate to give stick.
+   */
+  gain: { pitch: 7.0, roll: 9.0, yaw: 5.0 },
+  damping: { pitch: 0.9, roll: 0.9, yaw: 0.6 },
+  /** Strongest push (negative stick) allowed while banking toward the aim. */
+  bankPushLimit: 0.25,
+  /** Share of yaw kept in bank-and-yank (the rest is left to the roll). */
+  bankYawShare: 0.3,
+  /**
+   * When the aim sits almost straight below the lift vector, the roll keeps
+   * its chosen direction until the roll error is this far (deg) past 180°.
+   */
+  rollHysteresisDeg: 25,
+
+  /**
+   * Auto-bank roll-out: once the aim is reached and the mouse has rested for
+   * `idleTime`, the roll the controller itself added (bank-and-yank) is
+   * unwound. Roll made with A / D resets that count, and a pure pitch loop
+   * adds none, so knife-edge or inverted flight set by the player is kept.
+   * Off: the jet stays at the bank it ended its last turn with (~110°).
+   */
+  rollOut: { enabled: true, idleTime: 0.35, gain: 3.0, maxRateDeg: 140 },
+
+  /** Seconds for the aim controller to take an axis back after manual input ends. */
+  handbackTime: 0.25,
+  /** Aim keeps following the nose after pitch / yaw input until that body rate drops below this (deg/s). */
+  syncRateDeg: 4,
+  /** Aim error (deg) above which a saturated controller is reported to the HUD. */
+  saturationErrorDeg: 8,
+};
+
 export const CAMERA = {
   fovBase: 62,
   /** FOV added at max speed / with full afterburner. */
@@ -188,10 +247,23 @@ export const CAMERA = {
   horizonFollowRate: 9,
   /** Upper bound on camera rotation speed (deg/s), keeps hand-overs smooth. */
   maxTurnRateDeg: 200,
-  /** Horizon lock still rolls this fraction with the aircraft for life. */
-  horizonRollFollow: 0.18,
+  /**
+   * Horizon lock still banks with the aircraft for life: peak tilt (deg) at
+   * 90° bank, easing back to level when inverted so a full roll never flips.
+   */
+  horizonBankFollowDeg: 14,
   /** |forward.y| range over which horizon lock hands over to the aircraft up vector. */
   verticalBlend: [0.78, 0.97] as [number, number],
+  /** Aim lock: rotation smoothing (1/s) — stiff, the view should track the mouse. */
+  aimFollowRate: 16,
+  /** Aim lock looks along aim × this + flight path × (1 − this). */
+  aimLookWeight: 0.65,
+  /** Aim lock bank follow (deg at 90° bank), like `horizonBankFollowDeg`. */
+  aimBankFollowDeg: 22,
+  /** Free look: rotation per pixel (deg), pitch clamp (deg), return rate after release (1/s). */
+  freeLookDegPerPx: 0.15,
+  freeLookMaxPitchDeg: 75,
+  freeLookReturnRate: 6,
   /** Position spring (1/s). The lag makes accelerations readable. */
   positionRate: 24,
   /** How fast the chase distance settles after afterburner / airbrake changes (1/s). */
@@ -223,6 +295,19 @@ export const WORLD = {
   groundSize: 40000,
   gridMinor: 100,
   gridMajor: 1000,
+};
+
+export const RACE = {
+  /**
+   * Crossing a later ring's plane within this distance of its centre (m)
+   * before the next ring counts as skipping. Ring planes are infinite, so
+   * anything further away is ignored. The next ring itself has no gate.
+   */
+  gateRadius: 160,
+  /** Seconds the FINISH / FAIL banner stays on the HUD. */
+  bannerTime: 5,
+  /** Fastest runs kept. */
+  maxRecords: 20,
 };
 
 export const DEG2RAD = DEG;
