@@ -188,8 +188,11 @@ export const CAMERA = {
   horizonFollowRate: 9,
   /** Upper bound on camera rotation speed (deg/s), keeps hand-overs smooth. */
   maxTurnRateDeg: 200,
-  /** Horizon lock still rolls this fraction with the aircraft for life. */
-  horizonRollFollow: 0.18,
+  /**
+   * Horizon lock still banks with the aircraft for life: peak tilt (deg) at
+   * 90° bank, easing back to level when inverted so a full roll never flips.
+   */
+  horizonBankFollowDeg: 14,
   /** |forward.y| range over which horizon lock hands over to the aircraft up vector. */
   verticalBlend: [0.78, 0.97] as [number, number],
   /** Position spring (1/s). The lag makes accelerations readable. */

@@ -18,6 +18,7 @@ const BODY_FWD = new THREE.Vector3(0, 0, 1);
 const BODY_UP = new THREE.Vector3(0, 1, 0);
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 /** Camera looks down its -Z; the rig's forward is +Z, so turn the camera around. */
+const ROLL = new THREE.Quaternion();
 const FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
 /**
@@ -143,8 +144,12 @@ export class ChaseCamera {
     const up = ref.crossVectors(f, left).normalize();
     this._m.makeBasis(left, up, f);
     this._q.setFromRotationMatrix(this._m);
-    // A little bank-follow keeps it lively without losing the horizon.
-    return this._q.slerp(q, CAMERA.horizonRollFollow);
+    // A little bank-follow keeps it lively without losing the horizon. Signed
+    // bank about forward; sin() makes the tilt fade to zero at 180° so it is
+    // continuous through inverted (a quaternion slerp would flip sides there).
+    const bank = Math.atan2(left.crossVectors(up, au).dot(f), up.dot(au));
+    const tilt = THREE.MathUtils.degToRad(CAMERA.horizonBankFollowDeg) * Math.sin(bank);
+    return this._q.multiply(ROLL.setFromAxisAngle(BODY_FWD, tilt));
   }
 
   /** Heading kept, pitched 25° down so the camera rises and looks at the wreck. */
