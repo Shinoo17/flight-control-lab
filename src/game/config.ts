@@ -297,4 +297,17 @@ export const WORLD = {
   gridMajor: 1000,
 };
 
+export const RACE = {
+  /**
+   * Crossing a later ring's plane within this distance of its centre (m)
+   * before the next ring counts as skipping. Ring planes are infinite, so
+   * anything further away is ignored. The next ring itself has no gate.
+   */
+  gateRadius: 160,
+  /** Seconds the FINISH / FAIL banner stays on the HUD. */
+  bannerTime: 5,
+  /** Fastest runs kept. */
+  maxRecords: 20,
+};
+
 export const DEG2RAD = DEG;

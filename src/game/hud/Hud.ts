@@ -3,6 +3,7 @@ import { HUD as CFG } from '../config';
 import type { FlightTelemetry } from '../flight/FlightModel';
 import type { ControlState } from '../input/ControlAxes';
 import { CAMERA_MODE_LABEL, type CameraMode } from '../camera/ChaseCamera';
+import { formatRaceTime } from '../race/RaceRecords';
 
 /** Mouse-aim state for the HUD; null in keyboard-only mode. */
 export interface HudMouse {
@@ -14,6 +15,18 @@ export interface HudMouse {
   locked: boolean;
   aimLimit: 'limited' | 'free';
   freeLook: boolean;
+}
+
+/** Ring-course timer state. */
+export interface HudRace {
+  running: boolean;
+  /** Seconds since ring 1 (frozen after a finish / fail). */
+  time: number;
+  /** Rings flown this run. */
+  passed: number;
+  total: number;
+  best: number | null;
+  banner: { title: string; detail: string; good: boolean } | null;
 }
 
 export interface HudFrame {
@@ -32,7 +45,7 @@ export interface HudFrame {
   /** Height above whatever is directly below. */
   radarAltitude: number;
   warnings: { pullUp: boolean; outOfBounds: number | null; crashed: string | null; lowSpeed: boolean };
-  rings: { passed: number; total: number };
+  race: HudRace;
 }
 
 const DEG = Math.PI / 180;
@@ -116,6 +129,7 @@ export class Hud {
     this.drawBank(f, scale);
     this.drawEngine(f, scale);
     this.drawStatus(f, scale);
+    this.drawRace(f.race, scale);
     this.drawWarnings(f, scale);
   }
 
@@ -531,7 +545,7 @@ export class Hud {
     ctx.fillText(f.aircraftName.toUpperCase(), 12, 10 + 18 * s);
     ctx.fillText(`CAM ${CAMERA_MODE_LABEL[f.cameraMode].toUpperCase()}${f.mouse?.freeLook ? ' · FREE LOOK' : ''}`, 12, 10 + 36 * s);
     ctx.fillText(`INPUT ${f.mouse ? `MOUSE · AIM ${f.mouse.aimLimit === 'free' ? 'FREE' : 'LIMITED'}` : 'KEYBOARD'}`, 12, 10 + 54 * s);
-    ctx.fillText(`RINGS ${f.rings.passed}/${f.rings.total}`, 12, 10 + 72 * s);
+    ctx.fillText(`RINGS ${f.race.passed}/${f.race.total}`, 12, 10 + 72 * s);
     ctx.restore();
 
     if (f.mouse && !f.mouse.locked && !f.warnings.crashed) {
@@ -544,6 +558,34 @@ export class Hud {
       ctx.fillText('CLICK TO CAPTURE MOUSE', this.w / 2, this.h - 28 * s - 10);
       ctx.restore();
     }
+  }
+
+  /** Top centre, under the heading tape: run clock, or the FINISH / FAIL banner. */
+  private drawRace(r: HudRace, s: number) {
+    const ctx = this.ctx;
+    const cx = this.w / 2;
+    const y = 128 * s + 10;
+    const best = r.best === null ? '' : `BEST ${formatRaceTime(r.best)}`;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (r.banner) {
+      ctx.fillStyle = r.banner.good ? CFG.color : CFG.dangerColor;
+      ctx.font = `800 ${24 * s + 6}px ${FONT}`;
+      ctx.fillText(r.banner.title, cx, y);
+      ctx.font = `600 ${15 * s + 4}px ${FONT}`;
+      ctx.fillText(r.banner.detail, cx, y + 28 * s);
+    } else if (r.running) {
+      ctx.font = `700 ${24 * s + 6}px ${FONT}`;
+      ctx.fillText(formatRaceTime(r.time), cx, y);
+      ctx.font = `${12 * s + 3}px ${FONT}`;
+      ctx.fillText(`RING ${r.passed + 1}/${r.total}${best ? `  ·  ${best}` : ''}`, cx, y + 24 * s);
+    } else {
+      ctx.globalAlpha = 0.55;
+      ctx.font = `${12 * s + 3}px ${FONT}`;
+      ctx.fillText(`RING 1 STARTS THE CLOCK${best ? `  ·  ${best}` : ''}`, cx, y);
+    }
+    ctx.restore();
   }
 
   private drawWarnings(f: HudFrame, s: number) {

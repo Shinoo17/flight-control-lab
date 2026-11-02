@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { FLIGHT, HUD as HUD_CFG, RENDER, SIM, WORLD } from './config';
+import { FLIGHT, HUD as HUD_CFG, RACE, RENDER, SIM, WORLD } from './config';
 import { KeyboardInput } from './input/KeyboardInput';
 import { MouseInput } from './input/MouseInput';
 import { FlightControls, type ControlKeys } from './input/ControlAxes';
@@ -13,6 +13,8 @@ import { Hud } from './hud/Hud';
 import { World } from './world/World';
 import { SpeedLines } from './effects/SpeedLines';
 import { Explosion } from './effects/Explosion';
+import { RingRace, type RaceEvent } from './race/RingRace';
+import { RaceRecords, formatRaceTime, type RaceRecord } from './race/RaceRecords';
 
 export type GameStatus = 'menu' | 'loading' | 'flying' | 'crashed' | 'paused';
 
@@ -26,6 +28,8 @@ export interface GameSnapshot {
   mouseLocked: boolean;
   crashReason: string | null;
   error: string | null;
+  /** Fastest ring-course runs, best first. */
+  records: RaceRecord[];
 }
 
 /** Key bindings, by `KeyboardEvent.code`. */
@@ -85,6 +89,10 @@ export class Game {
   private readonly explosion = new Explosion();
   private readonly resizeObserver: ResizeObserver;
   private aircraft: Aircraft | null = null;
+  private readonly race: RingRace;
+  private readonly records = new RaceRecords();
+  /** FINISH / FAIL message on the HUD, with seconds left to show it. */
+  private raceBanner: { title: string; detail: string; good: boolean; timer: number } | null = null;
 
   private status: GameStatus = 'menu';
   private crashReason: string | null = null;
@@ -133,6 +141,8 @@ export class Game {
 
     this.loader = createModelLoader(this.renderer);
     this.world = new World(this.scene, this.renderer);
+    this.race = new RingRace(this.world.zones.rings.list);
+    this.world.paintRings(this.race.states);
     this.chase = new ChaseCamera(1);
     this.chase.mode = DEFAULT_CAMERA[this.mixer.mode];
     this.scene.add(this.speedLines.mesh, this.explosion.group);
@@ -169,6 +179,7 @@ export class Game {
       mouseLocked: this.mouse.locked,
       crashReason: this.crashReason,
       error: this.error,
+      records: this.records.list,
     };
   }
 
@@ -273,7 +284,9 @@ export class Game {
     this.oobTimer = null;
     this.explosion.hide();
     this.speedLines.reset();
-    this.world.resetRings();
+    // Any reset aborts a run in progress without recording it.
+    this.race.reset();
+    this.world.paintRings(this.race.states);
     if (this.aircraft) this.aircraft.root.visible = true;
     this.chase.snap();
     this.lastTime = performance.now();
@@ -306,7 +319,7 @@ export class Game {
       },
       camera: this.chase.mode,
       crash: this.crashReason,
-      rings: this.world.ringsPassed,
+      race: { running: this.race.running, next: this.race.next, time: +this.race.time.toFixed(2) },
     };
   }
 
@@ -395,6 +408,7 @@ export class Game {
   }
 
   private simulate(dt: number) {
+    if (this.raceBanner && (this.raceBanner.timer -= dt) <= 0) this.raceBanner = null;
     if (this.status === 'crashed') {
       this.crashTimer -= dt;
       if (this.crashTimer <= 0) this.resetFlight();
@@ -410,7 +424,8 @@ export class Game {
       this.controls.update(keys, step);
       this.mixer.step(this.fm, step);
       this.fm.step(this.mixer, step);
-      this.world.checkRings(this.prevPos, this.fm.position);
+      const ev = this.race.step(this.prevPos, this.fm.position, step);
+      if (ev) this.onRaceEvent(ev);
       const hit = this.collide();
       if (hit) {
         this.crash(hit);
@@ -436,7 +451,34 @@ export class Game {
     return null;
   }
 
+  private onRaceEvent(ev: RaceEvent) {
+    this.world.paintRings(this.race.states);
+    const banner = (title: string, detail: string, good: boolean) =>
+      (this.raceBanner = { title, detail, good, timer: RACE.bannerTime });
+    switch (ev.kind) {
+      case 'start':
+        this.raceBanner = null;
+        break;
+      case 'ring':
+        break;
+      case 'finish': {
+        const rank = this.aircraft
+          ? this.records.add({ time: ev.time, aircraft: this.aircraft.def.id, date: Date.now() })
+          : 0;
+        const place = rank === 1 ? 'NEW BEST' : rank ? `#${rank}` : `NOT IN TOP ${RACE.maxRecords}`;
+        banner('FINISH', `${formatRaceTime(ev.time)} · ${place}`, true);
+        this.emit();
+        break;
+      }
+      case 'fail':
+        banner('FAIL', `${ev.reason.toUpperCase()} · ${formatRaceTime(ev.time)}`, false);
+        break;
+    }
+  }
+
   private crash(reason: string) {
+    const ev = this.race.fail('crashed');
+    if (ev) this.onRaceEvent(ev);
     this.crashReason = reason;
     this.crashTimer = WORLD.crashResetDelay;
     this.explosion.trigger(this.fm.position, this.fm.velocity(this._vel));
@@ -539,7 +581,14 @@ export class Game {
         crashed: this.status === 'crashed' ? this.crashReason : null,
         lowSpeed: t.speed < HUD_CFG.lowSpeedWarn,
       },
-      rings: { passed: this.world.ringsPassed, total: this.world.zones.rings.list.length },
+      race: {
+        running: this.race.running,
+        time: this.race.time,
+        passed: this.race.next,
+        total: this.race.total,
+        best: this.records.best,
+        banner: this.raceBanner,
+      },
     });
   }
 

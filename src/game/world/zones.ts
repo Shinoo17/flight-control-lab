@@ -36,7 +36,6 @@ export interface Ring {
   center: THREE.Vector3;
   normal: THREE.Vector3;
   radius: number;
-  passed: boolean;
 }
 
 export interface Zones {
@@ -258,7 +257,7 @@ function buildObstacleCourse(batch: StaticBatch, col: ColliderSet, signs: LabelS
     const p = new THREE.Vector3(path(z), alt(z), z);
     const ahead = new THREE.Vector3(path(z - 20), alt(z - 20), z - 20);
     const n = ahead.sub(p).normalize();
-    list.push({ center: p, normal: n, radius: ringR, passed: false });
+    list.push({ center: p, normal: n, radius: ringR });
     col.torus(p, n, ringR, tube + 1, `ring ${i + 1}`);
     signs.add(`${i + 1}`, p.clone().add(new THREE.Vector3(0, ringR + 12, 0)), {
       height: 14,
