@@ -113,6 +113,26 @@ export class FlightModel {
     return dry * 0.6 + (1 - dry * 0.6) * c.afterburner;
   }
 
+  /**
+   * Body rates (rad/s) that full stick commands right now, in the same
+   * layout as `rates` (x = pitch, y = yaw, z = roll). Authority fades with
+   * airspeed, and pitch is further capped by the G-limit at high speed.
+   */
+  rateLimits(out = new Vector3()): Vector3 {
+    const eff = this.effectiveness();
+    const max = FLIGHT.maxRateDeg;
+    return out.set(
+      Math.min(max.pitch * DEG2RAD * eff, this.gLimitRate()),
+      max.yaw * DEG2RAD * eff,
+      max.roll * DEG2RAD * eff,
+    );
+  }
+
+  /** Pitch rate (rad/s) at which load factor reaches `gLimit`. */
+  gLimitRate(): number {
+    return ((FLIGHT.gLimit - 1) * SIM.gravity) / (FLIGHT.gScale * Math.max(this.speed, 1));
+  }
+
   step(c: ControlState, dt: number): void {
     const eff = this.effectiveness();
     const f = this.forward(this._f);
@@ -120,13 +140,12 @@ export class FlightModel {
     const r = this.right(this._r);
 
     // --- angular rates: commanded rate approached with inertia -------------
-    const max = FLIGHT.maxRateDeg;
-    const resp = FLIGHT.rateResponse;
     // G-limit: at high speed the same stick gives a lower pitch rate.
-    const gLimitRate = ((FLIGHT.gLimit - 1) * SIM.gravity) / (FLIGHT.gScale * Math.max(this.speed, 1));
-    const tgtPitch = c.pitch * Math.min(max.pitch * DEG2RAD * eff, gLimitRate);
-    const tgtRoll = c.roll * max.roll * DEG2RAD * eff;
-    const tgtYaw = c.yaw * max.yaw * DEG2RAD * eff;
+    const lim = this.rateLimits(this._v);
+    const resp = FLIGHT.rateResponse;
+    const tgtPitch = c.pitch * lim.x;
+    const tgtRoll = c.roll * lim.z;
+    const tgtYaw = c.yaw * lim.y;
     this.rates.x += (tgtPitch - this.rates.x) * (1 - Math.exp(-resp.pitch * dt));
     this.rates.z += (tgtRoll - this.rates.z) * (1 - Math.exp(-resp.roll * dt));
     this.rates.y += (tgtYaw - this.rates.y) * (1 - Math.exp(-resp.yaw * dt));

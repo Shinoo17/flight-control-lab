@@ -68,6 +68,8 @@ kbd {
   top: 12px;
   right: 12px;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   font-family: 'Barlow Condensed', sans-serif;
   letter-spacing: 0.04em;
@@ -160,6 +162,8 @@ dd {
 
 .center-banner {
   position: absolute;
+  /* Clicks fall through to the view, which re-captures the mouse and resumes. */
+  pointer-events: none;
   left: 50%;
   top: 38%;
   transform: translate(-50%, -50%);
